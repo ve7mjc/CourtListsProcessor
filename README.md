@@ -1,11 +1,14 @@
-==Command Line Arguments==
+# Command Line Arguments #
 
 -t, --today ; search only today
+
 -q, --quiet ; quiet output
+
 -c, --cacheonly ; search only cache
 
-==Example Usage==
+# Example Usage #
 
+`
 user@host:/opt/courtlists$ ./court_lists_process.py
 Search mode: pdf documents and cache
 Search list: /opt/osint/cso-searchlist.json
@@ -57,3 +60,4 @@ FOUND DOE, JOHN in 2019-05-29-Vancouver_Provincial_Court_Provincial.pdf
 FOUND DOE, JOHN in 2019-04-09-Vancouver_Provincial_Court_Provincial.pdf
 Completed. Searched 89238 files in 75.0 seconds (0.84 msecs average per document)
 Error reading 45 files (0.1%)
+`
