@@ -1,9 +1,7 @@
 # Command Line Arguments #
 
 -t, --today ; search only today
-
 -q, --quiet ; quiet output
-
 -c, --cacheonly ; search only cache
 
 # Example Usage #
