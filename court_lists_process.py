@@ -77,6 +77,8 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-t", "--today", help="search only today", action="store_true")
 parser.add_argument("-q", "--quiet", help="quiet output", action="store_true")
 parser.add_argument("-c", "--cacheonly", help="search only cache", action="store_true")
+parser.add_argument("-d", "--completed", help="search only completed list", action="store_true")
+parser.add_argument("-l", "--daily", help="search only daily list", action="store_true")
 
 args = parser.parse_args() # read arguments from the command line
 if args.quiet: 
@@ -84,6 +86,14 @@ if args.quiet:
 
 if args.today:
     search_mode = "TODAY"
+
+search_completed = True
+search_daily = True
+
+if args.completed and not args.daily:
+    search_daily = False
+elif args.daily and not args.completed:
+    search_completed = False   
 
 #   current date and time
 now = datetime.now()
@@ -124,12 +134,31 @@ for file in os.scandir(data_path_results):
         os.unlink(file.path)
 
 #files = glob.glob(data_path + date_prefix + "*Nanaimo*.pdf")
-if search_mode is "TODAY":
-    files = glob.glob(data_path + date_prefix + "*.pdf")
-    cache_files = glob.glob(data_path + date_prefix + "*.pdf.text")
-else:
-    files = glob.glob(data_path + "*.pdf")
-    cache_files = glob.glob(data_path + "*.pdf.text")
+
+if search_mode is "TODAY": search_date_prefix = date_prefix
+else: search_date_prefix = ""
+
+files = []
+cache_files = []
+
+# pull all files from OS into lists
+files = glob.glob(data_path + search_date_prefix + "*.pdf")
+cache_files = glob.glob(data_path + date_prefix + "*.pdf.text")
+
+# iterate through and weed out what we dont want
+newFiles = []
+for i in range(len(files)):
+    should_pass = True
+    if (not search_completed) and ("Completed" in files[i]):
+        should_pass = False
+    if (not search_daily) and ("Completed" not in files[i]):
+        should_pass = False
+    if (search_mode == "TODAY") and (date_prefix not in files[i]):
+        should_pass = False
+    if should_pass: 
+        newFiles.append(files[i])
+        print(files[i])
+files = newFiles
 
 total_files = len(files)
 total_cached_files = len(cache_files)
