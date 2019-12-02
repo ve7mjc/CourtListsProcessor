@@ -15,16 +15,62 @@ from os import path
 from shutil import copyfile
 
 import argparse
+import requests
 
 data_path = "/opt/osint/data/courtlists/"
 data_path_results = "/opt/osint/data/courtlists_hits/"
 search_list_json = "/opt/osint/cso-searchlist.json"
+config_path_json = "/opt/osint/config.json"
 progress_report_enabled = False
 progress_report_secs = 60 * 2
 search_cache_only = False
 verbose_output = True
-search_mode = "ALL" # default to only searching today
+search_mode = "ALL" # default to only searching today?
 # filename = "2019-11-21_Nanaimo_Law_Court_Provincial_Completed.pdf"
+
+email_configured = False
+mailgun_api_key = None
+mailgun_domain = None
+reports_email_from = None
+reports_email_to = None
+
+try:
+    with open(config_path_json) as json_config_file:
+        if verbose_output: print("configuring via config.json")
+        try:
+            data = json.load(json_config_file)
+            mailgun_api_key = data["mailgun_api_key"]
+            mailgun_domain = data["mailgun_domain"]
+            reports_email_from = data["reports_email_from"]
+            reports_email_to = data["reports_email_to"]
+            email_configured = True
+        except Exception as e:
+            print("error processing config.json",e)
+            raise
+except:
+    pass # not loading a config
+
+def email_reports(report_texts, attachments):
+
+    global mailgun_api_key, reports_email_from, reports_email_to
+        
+    report_text = ""
+    report_text_html = ""
+    print(report_texts)
+    for hit_text in report_texts:
+        report_text = report_text + hit_text + "\r\n"
+        report_text_html = report_text_html + hit_text + "<br />"
+
+    return requests.post(
+        "https://api.mailgun.net/v3/" + mailgun_domain + "/messages",
+        auth=("api", mailgun_api_key),
+        files=attachments,
+        data={"from": reports_email_from,
+              "to": reports_email_to,
+              "subject": "CSO HITS (" + str(len(report_texts)) + ")",
+              "text": report_text,
+              "html": "<html>" + report_text_html + "</html>"})
+
 
 # initiate the parser
 parser = argparse.ArgumentParser()
@@ -43,6 +89,13 @@ if args.today:
 now = datetime.now()
 date_prefix = now.strftime("%Y-%m-%d_")
 
+search_terms = []
+with open(search_list_json, 'r') as json_file:
+    search_terms = json.load(json_file)
+    if len(search_terms) is 0:
+        print("WARNING: no search terms specified")
+num_search_terms = len(search_terms)
+
 if verbose_output:
     progress_report_enabled = True
     
@@ -51,15 +104,9 @@ if verbose_output:
     else:
         print("Search mode: cached text only")
     
-    print("Search list:",search_list_json)
+    print("Search list:",search_list_json + "; found",num_search_terms,"search terms")
     print("Search path:",data_path)
     print("Results path:",data_path_results)
-
-search_terms = []
-with open(search_list_json, 'r') as json_file:
-    search_terms = json.load(json_file)
-    if len(search_terms) is 0:
-        print("WARNING: no search terms specified")
 
 # case insensitive search; uppercase all search terms
 case_insensitive_terms = []
@@ -100,6 +147,10 @@ time_lastreport = time.time()
 
 current_filenum = 0
 num_files_errors = 0
+num_files_copied = 0
+num_search_hits = 0
+search_hit_documents = []
+search_hit_texts = []
 for file in files:
 
     # Progress Report
@@ -140,22 +191,36 @@ for file in files:
                 if search_term[0] is not '-':
                     if search_term in doc_text.upper():
                         hits_files.append(file)
+                        num_search_hits += 1
+                        search_hit_text = "FOUND " + search_term + " in " + os.path.basename(file)
+                        if verbose_output: print(search_hit_text)
+                        search_hit_texts.append(search_hit_text)
+                        search_hit_documents.append((file, search_term + "-" + os.path.basename(file))) # prepare for email
                         try:
                             copyfile(file, data_path_results + search_term + "-" + os.path.basename(file))
-                            print("FOUND",search_term,"in", os.path.basename(file))
+                            num_files_copied += 1
                         except Exception as e:
                             print("ERROR: unable to copy file",e)
 
     except Exception as e:
         num_files_errors += 1
         if verbose_output:
-            # print("ERROR reading",file,e)
+            print("ERROR reading",file,e)
             pass
+
 
 job_duration_secs = time.time()-time_startjob
 percent_read_errors = (num_files_errors/current_filenum) * 100
 if verbose_output:
-    print("Completed. Searched",current_filenum,"files in",round(job_duration_secs,1),"seconds (" + str(round((job_duration_secs/current_filenum)*1000,2)) + " msecs average per document)")
+    print("Completed. Searched",current_filenum,"files for",num_search_terms,"search terms in",round(job_duration_secs,1),"seconds (" + str(round((job_duration_secs/current_filenum)*1000,2)) + " msecs average per document)")
+    print("Found",num_search_hits,"hits; copied",num_files_copied,"files")
     if (num_files_errors):
         print("Error reading",num_files_errors,"files (" + str(round(percent_read_errors,1)) + "%)")
 
+if email_configured and len(search_hit_documents):
+    if verbose_output: print("emailing documents..")
+    attachments = []
+    for (doc_file,doc_name) in search_hit_documents:
+        attachments.append(("attachment", (doc_name, open(doc_file,"rb").read())))
+    email_reports(search_hit_texts, attachments)
+    if verbose_output: print("done..")
