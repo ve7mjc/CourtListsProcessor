@@ -13,6 +13,7 @@ from os.path import basename
 from datetime import datetime
 import hashlib
 import traceback
+import requests
 
 import os.path
 from os import path
@@ -24,6 +25,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-q", "--quiet", help="quiet output", action="store_true")
 parser.add_argument("-c", "--completedonly", help="only completed lists", action="store_true")
 parser.add_argument("-d", "--dailyonly", help="only daily lists", action="store_true")
+parser.add_argument("-p", "--psclonly", help="only daily lists", action="store_true")
 parser.add_argument("-f", "--overwrite", help="force new download, overwrite cache", action="store_true")
 
 args = parser.parse_args() # read arguments from the command line
@@ -33,15 +35,23 @@ else: verbose_output = True
 
 include_completed = True
 include_daily_list = True
+include_pscl = True
 
 if args.dailyonly:
     include_completed = False
+    include_pscl = False
 if args.completedonly:
     include_daily_list = False
+    include_pscl = False
+if args.psclonly:
+    include_daily_list = False
+    include_completed = False
 
 # CONFIG
 filesystem_path = "/opt/osint/data/courtlists/"
-courts = {
+
+# adult criminal courts
+pac_courts = {
     "100_Mile_House_Law_Court_Provincial",
     "Abbotsford_Provincial_Court_Provincial",
     "Alexis_Creek_Provincial_Court_Provincial",
@@ -163,35 +173,69 @@ courts = {
     "Williams_Lake_Law_Court_Supreme"
 }
 
+# provincial small claim
+psc_courts = {
+    "Chilliwack_Law_Courts",
+    "Duncan_Law_Courts",
+    "Kamloops_Law_Courts",
+    "Kitimat_Law_Courts",
+    "McBride_Provincial_Court",
+    "Nanaimo_Law_Courts",
+    "New_Westminster_Law_Courts",
+    "North_Vancouver_Provincial_Court",
+    "Penticton_Law_Courts",
+    "Port_Coquitlam_Provincial_Court",
+    "Richmond_Provincial_Court",
+    "Robson_Square_Provincial_Court",
+    "Surrey_Provincial_Court",
+    "Vanderhoof_Law_Courts",
+    "Victoria_Law_Courts",
+    "Western_Communities_Provincial_Court"
+}
+
+pscl_prefix = "https://justice.gov.bc.ca/cso/courtLists.do?&"
+
 now = datetime.now() # current date and time
 date_prefix = now.strftime("%Y-%m-%d_")
 
 # build list of download urls
-urls = []
-for court in courts:
+remote_documents = []
+for accourt in pac_courts:
 
+    # provincial small claims courts
     if include_daily_list:
-        url = "https://justice.gov.bc.ca/courts/court-lists/criminal/lists/" + court + ".pdf"
-        urls.append(url)
+        remote_documents.append((accourt, "https://justice.gov.bc.ca/courts/court-lists/criminal/lists/" + accourt + ".pdf"))
 
     if include_completed:
-        url = "https://justice.gov.bc.ca/courts/court-lists/criminal/lists/" + court + "_Completed.pdf"
-        urls.append(url)
+        remote_documents.append((accourt + "_Completed", "https://justice.gov.bc.ca/courts/court-lists/criminal/lists/" + accourt + "_Completed.pdf"))
 
-for url in urls:
+if include_pscl:
+    for psccourt in psc_courts:
+        remote_documents.append((psccourt + "_PSCL", "https://justice.gov.bc.ca/cso/courtLists.do?listSelection=" + psccourt + ".pdf&courtType=PSCL"))
+
+if verbose_output:
+    print(len(remote_documents),"remote documents in list")
+
+for entry in remote_documents:
     try:
-        resp = urllib.request.urlopen(url) # returns http.client.HTTPResponse object
-
-        data = resp.read()
         
-        target_filename = filesystem_path + date_prefix + basename(resp.url)
+        (name,url) = entry
+        headers = {'user-agent': 'Mozilla/5.0 (Android 4.4; Mobile; rv:41.0) Gecko/41.0 Firefox/41.0'}
+        resp = requests.get(url, headers=headers)
+        data = resp.content
+            
+        target_filename = filesystem_path + date_prefix + name + ".pdf" #basename(resp.url)
         
+        if verbose_output:
+            print("downloaded",target_filename,"-",len(data),"bytes")
+        
+        # hash the downloaded data
         m = hashlib.sha256()
         m.update(data)
         hash_downloaded = m.hexdigest()
-
+        
         exists = False # until proven otherwise
-
+        
         # if filename exists, open it and compare sha256 hash
         if (path.exists(target_filename)):
             try:
@@ -199,14 +243,14 @@ for url in urls:
                 m = hashlib.sha256()
                 m.update(f.read())
                 hash_existing = m.hexdigest()
-                
+
                 if (hash_downloaded == hash_existing):
                     if verbose_output: print("DEBUG:",target_filename,"exists in cache AND hashes match")
                     exists = True
-                else: 
+                else:
                     if verbose_output: print("DEBUG:",target_filename,"exists in cache but hashes differ")
                     # assumed exists = False
-
+                
             except Exception as err:
                 if verbose_output: print("ERROR: unable to open", target_filename)
                 pass # file doesnt exist
