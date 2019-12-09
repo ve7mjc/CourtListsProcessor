@@ -143,7 +143,7 @@ cache_files = []
 
 # pull all files from OS into lists
 files = glob.glob(data_path + search_date_prefix + "*.pdf")
-cache_files = glob.glob(data_path + date_prefix + "*.pdf.text")
+cache_files = glob.glob(data_path + search_date_prefix + "*.pdf.text")
 
 # iterate through and weed out what we dont want
 newFiles = []
@@ -157,7 +157,6 @@ for i in range(len(files)):
         should_pass = False
     if should_pass: 
         newFiles.append(files[i])
-        print(files[i])
 files = newFiles
 
 total_files = len(files)
@@ -194,20 +193,32 @@ for file in files:
 
         # look for cached text first
         if (file + ".text") not in cache_files and not search_cache_only:
+    
+            # we assume the file exists at this point as it is contained in
+            # a list obtained through a directory listing
+            try:
+                pdfFileObj = open(file, "rb")
+                pdfReader = PyPDF2.PdfFileReader(pdfFileObj)
+                num_pages = pdfReader.numPages
 
-            pdfFileObj = open(file, "rb")
-            pdfReader = PyPDF2.PdfFileReader(pdfFileObj)
-            num_pages = pdfReader.numPages
+                doc_text = ""
+                for page in range(pdfReader.numPages):
+                    pageObj = pdfReader.getPage(page)
+                    doc_text += pageObj.extractText()
 
-            doc_text = ""
-            for page in range(pdfReader.numPages):
-                pageObj = pdfReader.getPage(page)
-                doc_text += pageObj.extractText()
+            except Exception as e:
+                doc_text = "CORRUPTED"
+                print("Error reading",file,e)
 
-            if doc_text:
-                f = open(file + ".text", "w")
-                f.write(doc_text)
-                f.close()
+            try:
+                if doc_text:
+                    f = open(file + ".text", "w")
+                    f.write(doc_text)
+                    f.close()
+            except Exception as e:
+                print("unable to write cache file",file + "text")
+                print(e)
+
 
         else:
 
